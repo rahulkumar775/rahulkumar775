@@ -1,0 +1,87 @@
+import argparse
+import random
+import time
+from instagrapi import Client
+from instagrapi.exceptions import ClientError, LoginRequired
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Follow users from a target account's followers or followings list.")
+    parser.add_argument("--following-only", action="store_true", help="Only fetch and follow accounts the target user is following")
+    parser.add_argument("--followers-only", action="store_true", help="Only fetch and follow accounts that follow the target user")
+    return parser.parse_args()
+
+def follow_followers_and_following():
+    args = parse_args()
+    
+    # Determine execution mode based on arguments passed
+    if args.following_only and not args.followers_only:
+        mode = "following"
+    elif args.followers_only and not args.following_only:
+        mode = "followers"
+    else:
+        # Default flow when neither or both flags are specified
+        mode = "both"
+
+    session_id = input("Enter Session ID of the new account: ").strip()
+    old_username = input("Enter Username of the previous old account: ").strip()
+
+    cl = Client()
+
+    try:
+        print("\nAuthenticating session...")
+        cl.login_by_sessionid(session_id)
+        print("Session authenticated successfully.")
+
+        print(f"Resolving user ID for @{old_username}...")
+        target_user_id = cl.user_id_from_username(old_username)
+
+        following_dict = {}
+        followers_dict = {}
+
+        # 1. Fetch Following list if mode requires it
+        if mode in ("following", "both"):
+            print(f"\nFetching 'Following' list for @{old_username}...")
+            following_dict = cl.user_following(target_user_id)
+            print(f"Found {len(following_dict)} accounts in Following.")
+
+        # 2. Fetch Followers list if mode requires it
+        if mode in ("followers", "both"):
+            print(f"\nFetching 'Followers' list for @{old_username}...")
+            followers_dict = cl.user_followers(target_user_id)
+            print(f"Found {len(followers_dict)} accounts in Followers.")
+
+        # Combine or filter accounts based on selected mode
+        if mode == "following":
+            target_uids = set(following_dict.keys())
+        elif mode == "followers":
+            target_uids = set(followers_dict.keys())
+        else:
+            target_uids = set(following_dict.keys()).union(set(followers_dict.keys()))
+
+        print(f"\nMode: {mode.upper()} | Total unique accounts to follow: {len(target_uids)}")
+
+        # Process follows with delays
+        for index, uid in enumerate(target_uids, start=1):
+            user_obj = following_dict.get(uid) or followers_dict.get(uid)
+            username = getattr(user_obj, "username", str(uid))
+
+            try:
+                cl.user_follow(uid)
+                print(f"[{index}/{len(target_uids)}] Successfully followed @{username} (ID: {uid})")
+            except ClientError as e:
+                print(f"[{index}/{len(target_uids)}] Failed to follow @{username}: {e}")
+            except Exception as e:
+                print(f"[{index}/{len(target_uids)}] Unexpected error on @{username}: {e}")
+
+            delay = random.uniform(60, 120)
+            time.sleep(delay)
+
+        print("\nProcess complete.")
+
+    except LoginRequired:
+        print("\nError: Session ID is invalid or expired. Obtain a fresh sessionid from browser cookies.")
+    except Exception as e:
+        print(f"\nAn error occurred: {e}")
+
+if __name__ == "__main__":
+    follow_followers_and_following()
